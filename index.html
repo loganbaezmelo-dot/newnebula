@@ -95,30 +95,6 @@
           filter.type = "lowpass";
           filter.frequency.value = 600;
           this.gainNode.gain.value = 0.2;
-        } else if (type === "fast") {
-          filter.type = "lowpass";
-          filter.frequency.value = 200;
-          const osc = this.ctx.createOscillator();
-          osc.type = "sawtooth";
-          osc.frequency.setValueAtTime(60, t);
-          osc.frequency.linearRampToValueAtTime(150, t + 5);
-          const oscGain = this.ctx.createGain();
-          oscGain.gain.value = 0.08;
-          osc.connect(oscGain).connect(this.ctx.destination);
-          this.oscillators.push(osc);
-          osc.start();
-        } else if (type === "anime") {
-          filter.type = "highpass";
-          filter.frequency.value = 800;
-          this.gainNode.gain.value = 0.05;
-          const osc = this.ctx.createOscillator();
-          osc.type = "sine";
-          osc.frequency.value = 880;
-          const oscGain = this.ctx.createGain();
-          oscGain.gain.value = 0.05;
-          osc.connect(oscGain).connect(this.ctx.destination);
-          this.oscillators.push(osc);
-          osc.start();
         } else {
           filter.type = "lowpass";
           filter.frequency.value = 100;
@@ -193,15 +169,12 @@
         if (!generatedVideo || !generatedVideo.frames || generatedVideo.frames.length === 0) return;
         const timePerFrame = selectedDuration / generatedVideo.frames.length;
         const index = Math.floor(currentTime / timePerFrame);
-        const safeIndex = Math.min(index, generatedVideo.frames.length - 1);
-        setCurrentFrameIndex(safeIndex);
+        setCurrentFrameIndex(Math.min(index, generatedVideo.frames.length - 1));
       }, [currentTime, selectedDuration, generatedVideo]);
 
       useEffect(() => {
         if (isPlaying && generatedVideo) {
-          let audioType = generatedVideo.mode === "fast" ? "fast" : generatedVideo.effect;
-          if (generatedVideo.style === "Anime") audioType = "anime";
-          audioEngine.playAtmosphere(audioType);
+          audioEngine.playAtmosphere(generatedVideo.effect);
         } else {
           audioEngine.stop();
         }
@@ -224,6 +197,7 @@
         const currentFrameData = generatedVideo.frames[currentFrameIndex];
         const link = document.createElement("a");
         link.href = currentFrameData;
+        link.target = "_blank";
         link.download = "nebula_frame_" + generatedVideo.id + ".png";
         document.body.appendChild(link);
         link.click();
@@ -241,46 +215,46 @@
         const lower = prompt.toLowerCase();
         let effect = "none";
         if (lower.includes("rain")) effect = "rain";
-        else if (lower.includes("snow")) effect = "snow";
 
-        const baseStyle = selectedStyle === "Cinematic" ? "cinematic shot, 8k, photorealistic" :
-                          selectedStyle === "Anime" ? "anime style, vibrant 2d animation" :
-                          selectedStyle === "3D" ? "3d render, unreal engine 5" : "raw photo, dslr";
+        const baseStyle = selectedStyle === "Cinematic" ? "cinematic film still, 8k, photorealistic" :
+                          selectedStyle === "Anime" ? "anime style, vibrant studio ghibli" :
+                          selectedStyle === "3D" ? "unreal engine 5 3d render, octane render" : "raw photo, dslr";
 
-        const sequencePrompts = [
-          baseStyle + ", establishing shot, " + prompt,
-          baseStyle + ", dynamic action angle, motion blur, " + prompt,
-          baseStyle + ", detailed close up shot, depth of field, " + prompt,
-          baseStyle + ", wide perspective, atmospheric, " + prompt
+        const width = aspectRatio === "16:9" ? 1024 : 576;
+        const height = aspectRatio === "16:9" ? 576 : 1024;
+        const baseSeed = Math.floor(Math.random() * 100000);
+
+        // Sequence shot variations for Pollinations Flux
+        const shots = [
+          "establishing wide shot",
+          "dynamic action tracking shot",
+          "detailed cinematic close up",
+          "dramatic wide angle perspective"
         ];
 
+        const sequenceUrls = shots.map((shot, i) => {
+          const fullPrompt = encodeURIComponent(baseStyle + ", " + shot + ", " + prompt);
+          return "https://image.pollinations.ai/prompt/" + fullPrompt + "?model=flux&width=" + width + "&height=" + height + "&seed=" + (baseSeed + i * 7) + "&nologo=true";
+        });
+
+        // Preload images so playback doesn't stutter
         try {
-          const apiKey = "";
-          const imagePromises = sequencePrompts.map(p =>
-            fetch("https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=" + apiKey, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                instances: [{ prompt: p }],
-                parameters: { sampleCount: 1, aspectRatio: aspectRatio === "16:9" ? "16:9" : "9:16" },
-              }),
-            }).then(res => res.json())
+          await Promise.all(
+            sequenceUrls.map(url => {
+              return new Promise((resolve) => {
+                const img = new Image();
+                img.src = url;
+                img.onload = resolve;
+                img.onerror = resolve; // Continue even if one fails
+              });
+            })
           );
-
-          const results = await Promise.all(imagePromises);
-          const frames = results.map(data =>
-            data.predictions && data.predictions[0] && data.predictions[0].bytesBase64Encoded
-              ? "data:image/png;base64," + data.predictions[0].bytesBase64Encoded
-              : null
-          ).filter(Boolean);
-
-          if (frames.length === 0) throw new Error("No frames");
 
           const newVideo = {
             id: Date.now(),
             prompt: prompt,
-            frames: frames,
-            thumbnail: frames[0],
+            frames: sequenceUrls,
+            thumbnail: sequenceUrls[0],
             effect: effect,
             mode: motionMode,
             style: selectedStyle,
@@ -369,14 +343,14 @@
                   <div className="text-center space-y-3">
                     <NebulaIcon className="w-16 h-16 mx-auto opacity-80"/>
                     <h2 className="text-xl font-bold text-white">Nebula Sequence Engine</h2>
-                    <p className="text-xs text-slate-400">Type a prompt below to synthesize a sequence</p>
+                    <p className="text-xs text-slate-400">Powered by Pollinations Flux • Instant AI generation</p>
                   </div>
                 )}
 
                 {isGenerating && (
                   <div className="text-center space-y-2">
                     <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                    <p className="text-xs text-slate-300 font-medium">Generating Sequence Frames...</p>
+                    <p className="text-xs text-slate-300 font-medium">Synthesizing Flux Sequences via Pollinations...</p>
                   </div>
                 )}
 
@@ -434,7 +408,7 @@
                     disabled={isGenerating || !prompt}
                     className="px-6 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors"
                   >
-                    {isGenerating ? "Generating..." : "Generate"}
+                    {isGenerating ? "Rendering..." : "Generate"}
                   </button>
                 </div>
 
